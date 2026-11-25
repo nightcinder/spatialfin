@@ -1,6 +1,8 @@
 package dev.spatialfin
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -39,8 +41,13 @@ private fun launchPlayRequest(
     context: Context,
     fcastSession: dev.spatialfin.fcast.session.CastSessionManager?,
     scope: CoroutineScope,
-    request: PlayRequest,
+    rawRequest: PlayRequest,
 ) {
+    // When Helix hosts SpatialFin in a SpatialActivityPanel, never start the
+    // FULL_SPACE_MANAGED XrPlayerActivity: it would steal the host's Full Space.
+    // Play via MultitaskPlayerActivity instead. UniversalMedia and watch-party
+    // (SyncPlay) have no multitask variant and still launch XrPlayerActivity.
+    val request = if (EmbeddedHostMode.isActive(context)) rawRequest.asNonImmersive() else rawRequest
     when (request) {
         is PlayRequest.LibraryItem -> launchLibraryItem(context, fcastSession, scope, request)
         is PlayRequest.LocalMedia -> {
@@ -205,4 +212,33 @@ internal suspend fun launchWearLibraryItem(
     } ?: error("This item cannot be played on the target")
     context.startActivity(intent)
     return "Opening ${item.name}"
+}
+
+/**
+ * True when Helix launched [dev.spatialfin.unified.UnifiedMainActivity] inside a
+ * SpatialActivityPanel with [EXTRA_EMBEDDED_HOST]. Read from the hosting activity's current intent
+ * (kept fresh by `setIntent` in `onNewIntent`). It only ever downgrades playback to the
+ * non-Full-Space player, so an untrusted caller setting it gains nothing.
+ */
+object EmbeddedHostMode {
+    const val EXTRA_EMBEDDED_HOST = "dev.spatialfin.extra.EMBEDDED_HOST"
+
+    fun isActive(context: Context): Boolean {
+        var current: Context? = context
+        while (current is ContextWrapper) {
+            if (current is Activity) {
+                return current.intent?.getBooleanExtra(EXTRA_EMBEDDED_HOST, false) == true
+            }
+            current = current.baseContext
+        }
+        return false
+    }
+}
+
+private fun PlayRequest.asNonImmersive(): PlayRequest = when (this) {
+    is PlayRequest.LibraryItem -> if (openSyncPlayDialogOnStart) this else copy(immersive = false)
+    is PlayRequest.LocalMedia -> copy(immersive = false)
+    is PlayRequest.NetworkMedia -> copy(immersive = false)
+    is PlayRequest.UriMedia -> copy(immersive = false)
+    is PlayRequest.UniversalMedia -> this
 }

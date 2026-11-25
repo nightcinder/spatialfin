@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Release signing SHA-256 of com.nightcinder.helix, trusted to embed this app's activities.
+     The debug cert lives only in src/debug/res/values. -->
+<resources>
+    <string-array name="helix_embedding_certs">
+        <item>F2D689B59E9284AD32068CFF01D72485830AECC5C12A1385385E0305FAE32D36</item>
+    </string-array>
+</resources>

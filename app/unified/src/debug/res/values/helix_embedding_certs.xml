@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only overlay: also trusts Helix's debug signing cert. Never packaged in release. -->
+<resources>
+    <string-array name="helix_embedding_certs">
+        <item>F2D689B59E9284AD32068CFF01D72485830AECC5C12A1385385E0305FAE32D36</item>
+        <item>B1D9D67FA92AE26DEB3746B2CF1885CCCBEC2FED5741EA8DB008525B612C500B</item>
+    </string-array>
+</resources>
