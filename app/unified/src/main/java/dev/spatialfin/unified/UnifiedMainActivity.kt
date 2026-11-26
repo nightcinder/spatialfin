@@ -79,6 +79,7 @@ import dev.jdtech.jellyfin.plugins.model.UniversalSpatialFinItem
 import dev.jdtech.jellyfin.player.beam.BeamPlayerActivity
 import dev.jdtech.jellyfin.player.core.VideoUriHelper
 import dev.jdtech.jellyfin.player.tv.TvPlayerActivity
+import dev.jdtech.jellyfin.player.xr.MultitaskPlayerActivity
 import dev.jdtech.jellyfin.player.xr.XrPlayerActivity
 import dev.jdtech.jellyfin.player.xr.voice.SecondaryHandPinchDetector
 import dev.jdtech.jellyfin.player.xr.voice.VoiceControlOverlay
@@ -93,6 +94,7 @@ import dev.jdtech.jellyfin.settings.voice.VoiceTelemetryStore
 import dev.jdtech.jellyfin.viewmodels.MainState
 import dev.jdtech.jellyfin.viewmodels.MainViewModel
 import dev.jdtech.jellyfin.work.SyncWorker
+import dev.spatialfin.EmbeddedHostMode
 import dev.spatialfin.EpisodeRoute
 import dev.spatialfin.HomeRoute
 import dev.spatialfin.MediaRoute
@@ -113,7 +115,7 @@ import timber.log.Timber
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class UnifiedMainActivity : AppCompatActivity() {
+class UnifiedMainActivity : AppCompatActivity(), EmbeddedHostMode.EmbeddedHostState {
     companion object {
         const val EXTRA_INITIAL_SEARCH_QUERY = "initial_search_query"
         private const val HAND_TRACKING_PERMISSION = "android.permission.HAND_TRACKING"
@@ -126,6 +128,10 @@ class UnifiedMainActivity : AppCompatActivity() {
     private val deviceClass by lazy { detectDeviceClass() }
     private val capabilities by lazy { DeviceClassCapabilities(deviceClass) }
     private val viewModel: MainViewModel by viewModels()
+    private var embeddedHostLatched: Boolean = false
+
+    override val isEmbeddedHost: Boolean
+        get() = embeddedHostLatched
 
     @Inject
     lateinit var appPreferences: AppPreferences
@@ -204,8 +210,14 @@ class UnifiedMainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(EmbeddedHostMode.EXTRA_EMBEDDED_HOST, embeddedHostLatched)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        embeddedHostLatched = embeddedHostLatched || EmbeddedHostMode.hasExtra(intent)
         setIntent(intent)
         handleMaDeepLink(intent)
         handleViewVideoIntent(intent)
@@ -223,13 +235,21 @@ class UnifiedMainActivity : AppCompatActivity() {
             uri, displayName, stereoMode, projection, deviceClass)
 
         val playerIntent = when (deviceClass) {
-            DeviceClass.XR -> XrPlayerActivity.createIntentForUri(
-                context = this,
-                uri = uri,
-                title = displayName,
-                stereoMode = stereoMode,
-                projection = projection,
-            )
+            DeviceClass.XR -> if (isEmbeddedHost) {
+                MultitaskPlayerActivity.createIntentForUri(
+                    context = this,
+                    uri = uri,
+                    title = displayName,
+                )
+            } else {
+                XrPlayerActivity.createIntentForUri(
+                    context = this,
+                    uri = uri,
+                    title = displayName,
+                    stereoMode = stereoMode,
+                    projection = projection,
+                )
+            }
             DeviceClass.TV -> TvPlayerActivity.createIntentForUri(
                 context = this,
                 uri = uri,
@@ -271,6 +291,9 @@ class UnifiedMainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        embeddedHostLatched =
+            (savedInstanceState?.getBoolean(EmbeddedHostMode.EXTRA_EMBEDDED_HOST, false) == true) ||
+                EmbeddedHostMode.hasExtra(intent)
 
         if (handleViewVideoIntent(intent)) {
             finish()
@@ -770,7 +793,15 @@ class UnifiedMainActivity : AppCompatActivity() {
                     }
                     return when (item) {
                         is UniversalSpatialFinItem -> {
-                            context.startActivity(
+                            val universalIntent = if (EmbeddedHostMode.isActive(context)) {
+                                MultitaskPlayerActivity.createIntentForUniversalMedia(
+                                    context = context,
+                                    pluginId = item.universalMediaItem.pluginId,
+                                    itemId = item.universalMediaItem.id,
+                                    videoUrl = item.universalMediaItem.videoUrl,
+                                    title = item.name,
+                                )
+                            } else {
                                 XrPlayerActivity.createIntentForUniversalMedia(
                                     context = context,
                                     pluginId = item.universalMediaItem.pluginId,
@@ -780,7 +811,8 @@ class UnifiedMainActivity : AppCompatActivity() {
                                     stereoMode = item.universalMediaItem.stereoMode,
                                     projection = item.universalMediaItem.projection,
                                 )
-                            )
+                            }
+                            context.startActivity(universalIntent)
                             true
                         }
                         is SpatialFinMovie -> {
@@ -822,7 +854,13 @@ class UnifiedMainActivity : AppCompatActivity() {
                                 context, item, splitAvVideoRole = true,
                             )
                         },
-                    ) { XrPlayerActivity.createIntentForItem(context, item) }
+                    ) {
+                        if (EmbeddedHostMode.isActive(context)) {
+                            MultitaskPlayerActivity.createIntentForItem(context, item)
+                        } else {
+                            XrPlayerActivity.createIntentForItem(context, item)
+                        }
+                    }
                     if (routed) return true
                     return navigateToItem(item)
                 }

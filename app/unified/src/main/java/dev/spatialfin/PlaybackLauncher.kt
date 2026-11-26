@@ -1,6 +1,8 @@
 package dev.spatialfin
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -39,8 +41,15 @@ private fun launchPlayRequest(
     context: Context,
     fcastSession: dev.spatialfin.fcast.session.CastSessionManager?,
     scope: CoroutineScope,
-    request: PlayRequest,
+    rawRequest: PlayRequest,
 ) {
+    // When Helix hosts SpatialFin in a SpatialActivityPanel, never start the
+    // FULL_SPACE_MANAGED XrPlayerActivity: it would steal the host's Full Space.
+    // Play via MultitaskPlayerActivity instead. Watch-party (SyncPlay) and FCast
+    // Split-A/V (splitAvIntentBuilder) have no multitask variant and still
+    // launch XrPlayerActivity.
+    val embedded = EmbeddedHostMode.isActive(context)
+    val request = if (embedded) rawRequest.asNonImmersive() else rawRequest
     when (request) {
         is PlayRequest.LibraryItem -> launchLibraryItem(context, fcastSession, scope, request)
         is PlayRequest.LocalMedia -> {
@@ -80,7 +89,15 @@ private fun launchPlayRequest(
             context.startActivity(intent)
         }
         is PlayRequest.UniversalMedia -> {
-            context.startActivity(
+            val intent = if (embedded) {
+                MultitaskPlayerActivity.createIntentForUniversalMedia(
+                    context = context,
+                    pluginId = request.pluginId,
+                    itemId = request.id,
+                    videoUrl = request.videoUrl,
+                    title = request.name,
+                )
+            } else {
                 XrPlayerActivity.createIntentForUniversalMedia(
                     context,
                     request.pluginId,
@@ -90,7 +107,8 @@ private fun launchPlayRequest(
                     stereoMode = request.stereoMode,
                     projection = request.projection,
                 )
-            )
+            }
+            context.startActivity(intent)
         }
         is PlayRequest.UriMedia -> {
             val intent = if (request.immersive) {
@@ -205,4 +223,45 @@ internal suspend fun launchWearLibraryItem(
     } ?: error("This item cannot be played on the target")
     context.startActivity(intent)
     return "Opening ${item.name}"
+}
+
+/**
+ * True when Helix launched [dev.spatialfin.unified.UnifiedMainActivity] inside a
+ * SpatialActivityPanel with [EXTRA_EMBEDDED_HOST]. Activities implementing [EmbeddedHostState]
+ * latch the flag across `onCreate`/`onNewIntent`/`onSaveInstanceState` so subsequent intents
+ * (such as `spatialfin://ma/...` deep links or `ACTION_VIEW`) cannot clear embedded mode.
+ * Fallback reads `activity.intent` directly. It only ever downgrades playback to the
+ * non-Full-Space player, so an untrusted caller setting it gains nothing.
+ */
+object EmbeddedHostMode {
+    const val EXTRA_EMBEDDED_HOST = "dev.spatialfin.extra.EMBEDDED_HOST"
+
+    interface EmbeddedHostState {
+        val isEmbeddedHost: Boolean
+    }
+
+    fun hasExtra(intent: Intent?): Boolean =
+        intent?.getBooleanExtra(EXTRA_EMBEDDED_HOST, false) == true
+
+    fun isActive(context: Context): Boolean {
+        var current: Context? = context
+        while (current != null) {
+            if (current is EmbeddedHostState) {
+                return current.isEmbeddedHost
+            }
+            if (current is Activity) {
+                return hasExtra(current.intent)
+            }
+            current = (current as? ContextWrapper)?.baseContext
+        }
+        return false
+    }
+}
+
+internal fun PlayRequest.asNonImmersive(): PlayRequest = when (this) {
+    is PlayRequest.LibraryItem -> if (openSyncPlayDialogOnStart) this else copy(immersive = false)
+    is PlayRequest.LocalMedia -> copy(immersive = false)
+    is PlayRequest.NetworkMedia -> copy(immersive = false)
+    is PlayRequest.UriMedia -> copy(immersive = false)
+    is PlayRequest.UniversalMedia -> this
 }
