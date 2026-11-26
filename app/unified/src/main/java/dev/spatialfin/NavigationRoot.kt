@@ -86,6 +86,7 @@ import dev.jdtech.jellyfin.models.SpatialFinSeason
 import dev.jdtech.jellyfin.models.SpatialFinShow
 import dev.jdtech.jellyfin.models.SpatialFinPhoto
 import dev.jdtech.jellyfin.models.SpatialFinPlaylist
+import dev.jdtech.jellyfin.player.xr.MultitaskPlayerActivity
 import dev.jdtech.jellyfin.player.xr.XrPlayerActivity
 import dev.jdtech.jellyfin.player.xr.voice.GeminiNanoService
 import dev.jdtech.jellyfin.plugins.model.UniversalSpatialFinItem
@@ -1088,7 +1089,15 @@ private fun navigateToItem(navController: NavHostController, item: SpatialFinIte
     val context = navController.context
     when (item) {
         is UniversalSpatialFinItem -> {
-            context.startActivity(
+            val intent = if (EmbeddedHostMode.isActive(context)) {
+                MultitaskPlayerActivity.createIntentForUniversalMedia(
+                    context = context,
+                    pluginId = item.universalMediaItem.pluginId,
+                    itemId = item.universalMediaItem.id,
+                    videoUrl = item.universalMediaItem.videoUrl,
+                    title = item.name,
+                )
+            } else {
                 XrPlayerActivity.createIntentForUniversalMedia(
                     context = context,
                     pluginId = item.universalMediaItem.pluginId,
@@ -1098,7 +1107,8 @@ private fun navigateToItem(navController: NavHostController, item: SpatialFinIte
                     stereoMode = item.universalMediaItem.stereoMode,
                     projection = item.universalMediaItem.projection,
                 )
-            )
+            }
+            context.startActivity(intent)
         }
         is SpatialFinBoxSet ->
             navController.safeNavigate(

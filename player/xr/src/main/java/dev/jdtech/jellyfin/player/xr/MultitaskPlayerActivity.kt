@@ -162,6 +162,43 @@ class MultitaskPlayerActivity : ComponentActivity() {
                 putExtra("startFromBeginning", startFromBeginning)
             }
         }
+
+        fun createIntentForUniversalMedia(
+            context: Context,
+            pluginId: String,
+            itemId: String,
+            videoUrl: String,
+            title: String,
+        ): Intent {
+            return Intent(context, MultitaskPlayerActivity::class.java).apply {
+                putExtra("universalPluginId", pluginId)
+                putExtra("universalItemId", itemId)
+                putExtra("universalVideoUrl", videoUrl)
+                putExtra("universalTitle", title)
+            }
+        }
+
+        fun createIntentForItem(
+            context: Context,
+            item: dev.jdtech.jellyfin.models.SpatialFinItem,
+            startFromBeginning: Boolean = false,
+        ): Intent? {
+            val itemKind =
+                when (item) {
+                    is dev.jdtech.jellyfin.models.SpatialFinMovie -> "Movie"
+                    is dev.jdtech.jellyfin.models.SpatialFinEpisode -> "Episode"
+                    is dev.jdtech.jellyfin.models.SpatialFinSeason -> "Season"
+                    is dev.jdtech.jellyfin.models.SpatialFinShow -> "Series"
+                    else -> null
+                } ?: return null
+
+            return createIntent(
+                context = context,
+                itemId = item.id,
+                itemKind = itemKind,
+                startFromBeginning = startFromBeginning,
+            )
+        }
     }
 
     @OptIn(androidx.media3.common.util.UnstableApi::class)
